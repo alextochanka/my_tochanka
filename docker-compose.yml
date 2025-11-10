@@ -1,16 +1,17 @@
-version: '3'
+version: '3.8'
+
 services:
-  web-app:
-    container_name: web-app-container
-    image: my_project_image
-    build:
-      context: .                      # Относительная ссылка на текущий каталог
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"                   # Открытый порт (можете изменить)
-    volumes:
-      - .:/usr/src/app                 # Монтируем текущий каталог в контейнер
-    command: ["python", "/usr/src/app/main.py"]  # Запуск приложения
+  app:
+    build: .  # Использует Dockerfile в текущей директории
+    network_mode: host  # Контейнер использует сеть хоста для доступа к локальной БД
     environment:
-      - DEBUG=1                        # Режим дебага (не обязательно)
-    restart: always                    # Перезапуск контейнера при сбоях
+      - DB_HOST=localhost  # Или IP вашего хоста, например 192.168.1.100 (если не host mode)
+      - DB_PORT=3306       # Порт MySQL (измените, если другой)
+      - DB_USER=root  # Ваш логин БД
+      - DB_PASS=Tochankau110574  # Ваш пароль БД
+      - DB_NAME=Football  # Имя БД
+      # Добавьте другие переменные, если нужно (например, для Telegram API токена)
+    volumes:
+      - .:/app  # Монтируем текущую директорию для разработки (опционально, для hot-reload)
+    command: python main.py  # Запуск main.py
+    restart: unless-stopped  # Автозапуск при сбое

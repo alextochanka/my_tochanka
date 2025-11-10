@@ -7,7 +7,7 @@ def run_flask():
     print("Старт Flask app...")
     try:
         if app.initialize_database():
-            app.app.run(host="0.0.0.0", port=5000, debug=False)
+            app.app.run(host="0.0.0.0")
         else:
             print("База данных не инициализирована!")
     except Exception as e:

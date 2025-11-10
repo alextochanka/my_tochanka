@@ -5,47 +5,54 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from functools import wraps
 import hashlib
 from datetime import datetime
+import re
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your_default_secret_key')
 
-# Прямо в коде задаём необходимые параметры подключения к базе данных
-HOST = 'localhost'          # Адрес сервера баз данных
-PORT = 3306                 # Порт подключения
-USER = 'root'               # Имя пользователя базы данных
-PASSWORD = 'Tochankau110574' # Пароль пользователя
-DATABASE_NAME = 'Football'   # Название вашей базы данных
+# Конфигурация базы данных
+DB_CONFIG = {
+    'host': os.getenv('MYSQL_HOST', 'localhost'),
+    'port': int(os.getenv('MYSQL_PORT', 3306)),
+    'user': os.getenv('MYSQL_USER', 'root'),
+    'password': os.getenv('MYSQL_PASSWORD', 'Tochankau110574'),
+    'database': os.getenv('MYSQL_DATABASE', 'Football')
+}
+
+# Папки для загрузки изображений
+UPLOAD_FOLDER_PLAYERS = 'static/uploads/players'
+UPLOAD_FOLDER_CLUBS = 'static/uploads/clubs'
+app.config['UPLOAD_FOLDER_PLAYERS'] = UPLOAD_FOLDER_PLAYERS
+app.config['UPLOAD_FOLDER_CLUBS'] = UPLOAD_FOLDER_CLUBS
+os.makedirs(UPLOAD_FOLDER_PLAYERS, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER_CLUBS, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Список разрешенных таблиц
+ALLOWED_TABLES = {
+    'gentleman_coefficient', 'golden_ball', 'players', 'clubs',
+    'personal_stats', 'awards', 'trophies', 'footballers', 'logs', 'users'
+}
 
 def get_db_connection():
-    """
-    Функция возвращает соединение с базой данных MySQL.
-    Возвращает объект соединения или None в случае неудачи.
-    """
     try:
-        connection = mysql.connect(
-            host=HOST,
-            port=PORT,
-            user=USER,
-            password=PASSWORD,
-            database=DATABASE_NAME
-        )
-        return connection
+        return mysql.connect(**DB_CONFIG)
     except Error as e:
         print(f"Ошибка подключения к базе данных: {e}")
         return None
 
 def test_connection():
-    """
-    Тестирует работоспособность подключения к базе данных.
-    Возвращает True, если успешно подключился, иначе False.
-    """
     try:
         conn = get_db_connection()
         if conn and conn.is_connected():
             conn.close()
             return True
-        else:
-            return False
+        return False
     except Error:
         return False
 
@@ -60,52 +67,133 @@ def login_required(role='user'):
                 flash('Доступ запрещен. Требуются права администратора.', 'error')
                 return redirect(url_for('index'))
             return f(*args, **kwargs)
-
         return decorated_function
-
     return decorator
+
+def validate_input(text, max_length=255, pattern=None):
+    if not text or len(text.strip()) == 0:
+        return False
+    if len(text) > max_length:
+        return False
+    if pattern and not re.match(pattern, text):
+        return False
+    return True
+
+def validate_number(value, min_val=0, max_val=100):
+    try:
+        num = int(value)
+        return min_val <= num <= max_val
+    except (ValueError, TypeError):
+        return False
+
+def validate_float(value, min_val=1.0, max_val=5.0):
+    try:
+        num = float(value)
+        return min_val <= num <= max_val
+    except (ValueError, TypeError):
+        return False
 
 def initialize_database():
     if not test_connection():
-        print("Не удалось подключиться к MySQL. Проверьте пароль root и запуск сервера.")
+        print("Не удалось подключиться к MySQL. Проверьте настройки подключения.")
         return False
+
     try:
         temp_conn = mysql.connect(
-            host=os.getenv('MYSQL_HOST', 'localhost'),
-            port=int(os.getenv('MYSQL_PORT', 3306)),
-            user=os.getenv('MYSQL_USER', 'root'),
-            password=os.getenv('MYSQL_PASSWORD', 'Tochankau110574')
+            host=DB_CONFIG['host'],
+            port=DB_CONFIG['port'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password']
         )
         with temp_conn.cursor() as temp_cursor:
-            temp_cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DATABASE_NAME}")
+            temp_cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_CONFIG['database']}")
         temp_conn.close()
-        print(f"База данных {DATABASE_NAME} создана или уже существует.")
 
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
-                tables = [  # Список таблиц
-                    'CREATE TABLE IF NOT EXISTS gentleman_coefficient (id INT PRIMARY KEY AUTO_INCREMENT, coefficient FLOAT NOT NULL, footballer VARCHAR(255) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS golden_ball (id INT PRIMARY KEY AUTO_INCREMENT, holder VARCHAR(255) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS players (id INT PRIMARY KEY AUTO_INCREMENT, victories INT NOT NULL DEFAULT 0, losses INT NOT NULL DEFAULT 0, draws INT NOT NULL DEFAULT 0, player_name VARCHAR(255) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS clubs (id INT PRIMARY KEY AUTO_INCREMENT, champion_league INT NOT NULL DEFAULT 0, national_championship INT NOT NULL DEFAULT 0, cup INT NOT NULL DEFAULT 0, super_cup INT NOT NULL DEFAULT 0, victories INT NOT NULL DEFAULT 0, losses INT NOT NULL DEFAULT 0, draws INT NOT NULL DEFAULT 0, club_name VARCHAR(255) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS personal_stats (id INT PRIMARY KEY AUTO_INCREMENT, player_name VARCHAR(255) NOT NULL, goals INT NOT NULL DEFAULT 0, assists INT NOT NULL DEFAULT 0, clean_sheets INT NOT NULL DEFAULT 0);',
-                    'CREATE TABLE IF NOT EXISTS awards (id INT PRIMARY KEY AUTO_INCREMENT, top_scorer VARCHAR(255) NOT NULL, top_assist VARCHAR(255) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS trophies (id INT PRIMARY KEY AUTO_INCREMENT, club_name VARCHAR(255) NOT NULL, trophy_type VARCHAR(100) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS footballers (id INT PRIMARY KEY AUTO_INCREMENT, first_name VARCHAR(100) NOT NULL, last_name VARCHAR(100) NOT NULL, age INT NOT NULL, club VARCHAR(255) NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS logs (id INT PRIMARY KEY AUTO_INCREMENT, text TEXT NOT NULL);',
-                    'CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY AUTO_INCREMENT, login VARCHAR(100) NOT NULL UNIQUE, password_hash VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT \'user\');'
+                tables_sql = [
+                    '''CREATE TABLE IF NOT EXISTS gentleman_coefficient (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        coefficient FLOAT NOT NULL,
+                        footballer VARCHAR(255) NOT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS golden_ball (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        holder VARCHAR(255) NOT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS players (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        victories INT NOT NULL DEFAULT 0,
+                        losses INT NOT NULL DEFAULT 0,
+                        draws INT NOT NULL DEFAULT 0,
+                        player_name VARCHAR(255) NOT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS clubs (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        champion_league INT NOT NULL DEFAULT 0,
+                        national_championship INT NOT NULL DEFAULT 0,
+                        cup INT NOT NULL DEFAULT 0,
+                        super_cup INT NOT NULL DEFAULT 0,
+                        victories INT NOT NULL DEFAULT 0,
+                        losses INT NOT NULL DEFAULT 0,
+                        draws INT NOT NULL DEFAULT 0,
+                        club_name VARCHAR(255) NOT NULL,
+                        image_path VARCHAR(255) DEFAULT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS personal_stats (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        player_name VARCHAR(255) NOT NULL,
+                        goals INT NOT NULL DEFAULT 0,
+                        assists INT NOT NULL DEFAULT 0,
+                        clean_sheets INT NOT NULL DEFAULT 0
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS awards (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        top_scorer VARCHAR(255) NOT NULL,
+                        top_assist VARCHAR(255) NOT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS trophies (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        club_name VARCHAR(255) NOT NULL,
+                        trophy_type VARCHAR(100) NOT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS footballers (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        first_name VARCHAR(100) NOT NULL,
+                        last_name VARCHAR(100) NOT NULL,
+                        age INT NOT NULL,
+                        club VARCHAR(255) NOT NULL,
+                        image_path VARCHAR(255) DEFAULT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS logs (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        text TEXT NOT NULL
+                    )''',
+                    '''CREATE TABLE IF NOT EXISTS users (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        login VARCHAR(100) NOT NULL UNIQUE,
+                        password_hash VARCHAR(255) NOT NULL,
+                        role VARCHAR(50) DEFAULT 'user'
+                    )'''
                 ]
-                for table_sql in tables:
-                    cursor.execute(table_sql)
-                cursor.execute("SELECT COUNT(*) FROM users WHERE login = %s;", ('admin',))
+
+                for sql in tables_sql:
+                    cursor.execute(sql)
+
+                cursor.execute("SELECT COUNT(*) FROM users WHERE login = %s", ('admin',))
                 if cursor.fetchone()[0] == 0:
                     admin_password = hashlib.sha256("Админчик".encode()).hexdigest()
-                    cursor.execute("INSERT INTO users(login, password_hash, role) VALUES (%s, %s, %s);",
-                                   ('admin', admin_password, 'admin'))
+                    cursor.execute(
+                        "INSERT INTO users(login, password_hash, role) VALUES (%s, %s, %s)",
+                        ('admin', admin_password, 'admin')
+                    )
+
                 connection.commit()
+                print(f"База данных {DB_CONFIG['database']} инициализирована успешно")
                 return True
+
     except Error as e:
-        print(f"Ошибка инициализации: {e}")
+        print(f"Ошибка инициализации базы данных: {e}")
         return False
 
 def encrypt_password(password):
@@ -116,12 +204,11 @@ def write_log(text):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 timestamp = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                cursor.execute("INSERT INTO logs(text) VALUES (%s);", (f'{timestamp}: {text}',))
+                cursor.execute("INSERT INTO logs(text) VALUES (%s)", (f'{timestamp}: {text}',))
                 connection.commit()
     except Error as e:
         print(f"Ошибка записи лога: {e}")
 
-# Маршрут Flask
 @app.route('/')
 def index():
     current_year = datetime.now().year
@@ -130,38 +217,48 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        login_input = request.form['login']
-        password = request.form['password']
+        login_input = request.form.get('login', '').strip()
+        password = request.form.get('password', '')
+
+        if not login_input or not password:
+            flash('Заполните все поля', 'error')
+            return render_template('login.html')
 
         try:
-            connection = get_db_connection()
-            cursor = connection.cursor()
-            cursor.execute("SELECT id, password_hash, role FROM users WHERE login = %s;", (login_input,))
-            user = cursor.fetchone()
-            cursor.close()
-            connection.close()
+            with get_db_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id, password_hash, role FROM users WHERE login = %s",
+                        (login_input,)
+                    )
+                    user = cursor.fetchone()
 
-            if user and user[1] == encrypt_password(password):
-                session['user_id'] = user[0]
-                session['login'] = login_input
-                session['role'] = user[2]  # Важно: сохраняем роль в сессии
-                write_log(f"Пользователь {login_input} вошел в систему с ролью {user[2]}")
-                flash('Успешный вход в систему', 'success')
-                return redirect(url_for('index'))
-            else:
-                flash('Неверный логин или пароль', 'error')
+                    if user and user[1] == encrypt_password(password):
+                        session['user_id'] = user[0]
+                        session['login'] = login_input
+                        session['role'] = user[2]
+                        write_log(f"Пользователь {login_input} вошел в систему с ролью {user[2]}")
+                        flash('Успешный вход в систему', 'success')
+                        return redirect(url_for('index'))
+                    else:
+                        flash('Неверный логин или пароль', 'error')
+
         except Error as e:
-            flash(f'Ошибка подключения к БД: {str(e)}', 'error')
-            print(f"Ошибка в login: {e}")
+            flash('Ошибка подключения к базе данных', 'error')
+            print(f"Ошибка входа: {e}")
 
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        login_input = request.form['login']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
+        login_input = request.form.get('login', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not all([login_input, password, confirm_password]):
+            flash('Заполните все поля', 'error')
+            return render_template('register.html')
 
         if password != confirm_password:
             flash('Пароли не совпадают', 'error')
@@ -171,31 +268,30 @@ def register():
             flash('Пароль должен быть не менее 4 символов', 'error')
             return render_template('register.html')
 
+        if not validate_input(login_input, max_length=100):
+            flash('Некорректный логин', 'error')
+            return render_template('register.html')
+
         hashed_password = encrypt_password(password)
 
-        connection = None
-        cursor = None
         try:
-            connection = get_db_connection()
-            cursor = connection.cursor()
-            cursor.execute("INSERT INTO users (login, password_hash) VALUES (%s, %s)", (login_input, hashed_password))
-            connection.commit()
-            flash('Регистрация успешна. Теперь вы можете войти.', 'success')
-            write_log(f"Зарегистрирован новый пользователь: {login_input}")
-            return redirect(url_for('login'))
+            with get_db_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "INSERT INTO users (login, password_hash) VALUES (%s, %s)",
+                        (login_input, hashed_password)
+                    )
+                    connection.commit()
+                    flash('Регистрация успешна. Теперь вы можете войти.', 'success')
+                    write_log(f"Зарегистрирован новый пользователь: {login_input}")
+                    return redirect(url_for('login'))
+
         except Error as e:
-            if connection:
-                connection.rollback()
             if "Duplicate entry" in str(e):
                 flash('Пользователь с таким логином уже существует', 'error')
             else:
                 flash('Ошибка регистрации', 'error')
-                print(f"Ошибка в register: {e}")
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                connection.close()
+                print(f"Ошибка регистрации: {e}")
 
     return render_template('register.html')
 
@@ -211,109 +307,117 @@ def logout():
 @login_required()
 def vote_player():
     if request.method == 'POST':
-        # Валидация данных
-        first_name = request.form['first_name'].strip()
-        last_name = request.form['last_name'].strip()
-        age = request.form['age'].strip()
-        club = request.form['club'].strip()
-        wins = request.form.get('wins', '0').strip()
-        losses = request.form.get('losses', '0').strip()
-        draws = request.form.get('draws', '0').strip()
-        goals = request.form.get('goals', '0').strip()
-        assists = request.form.get('assists', '0').strip()
-        clean_sheets = request.form.get('clean_sheets', '0').strip()
-        gentleman_coef = request.form.get('gentleman_coef', '1.0').strip()
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        age = request.form.get('age', '').strip()
+        club = request.form.get('club', '').strip()
 
-        # Проверка обязательных полей
         if not all([first_name, last_name, age, club]):
             flash('Заполните все обязательные поля', 'error')
             return render_template('vote_player.html')
 
-        try:
-            # Преобразование и валидация числовых значений
-            age_value = int(age)
-            wins_value = int(wins) if wins else 0
-            losses_value = int(losses) if losses else 0
-            draws_value = int(draws) if draws else 0
-            goals_value = int(goals) if goals else 0
-            assists_value = int(assists) if assists else 0
-            clean_sheets_value = int(clean_sheets) if clean_sheets else 0
-            gentleman_coef_value = float(gentleman_coef) if gentleman_coef else 1.0
-
-            # Проверка диапазонов
-            validations = [
-                (0 <= age_value <= 100, "Возраст должен быть от 0 до 100 лет"),
-                (0 <= wins_value <= 100, "Количество побед должно быть от 0 до 100"),
-                (0 <= losses_value <= 100, "Количество поражений должно быть от 0 до 100"),
-                (0 <= draws_value <= 100, "Количество ничьих должно быть от 0 до 100"),
-                (0 <= goals_value <= 100, "Количество голов должно быть от 0 до 100"),
-                (0 <= assists_value <= 100, "Количество ассистов должно быть от 0 до 100"),
-                (0 <= clean_sheets_value <= 100, "Количество сухих матчей должно быть от 0 до 100"),
-                (1 <= gentleman_coef_value <= 5, "Джентльменский коэффициент должен быть от 1 до 5")
-            ]
-
-            for condition, error_msg in validations:
-                if not condition:
-                    flash(error_msg, 'error')
-                    return render_template('vote_player.html')
-
-        except ValueError:
-            flash('Некорректные числовые значения', 'error')
+        if not all([
+            validate_input(first_name, max_length=100),
+            validate_input(last_name, max_length=100),
+            validate_input(club, max_length=255),
+            validate_number(age, 0, 100)
+        ]):
+            flash('Некорректные данные в полях', 'error')
             return render_template('vote_player.html')
 
-        # Проверка максимального количества футболистов
-        connection = None
-        cursor = None
-        try:
-            connection = get_db_connection()
-            cursor = connection.cursor()
-            cursor.execute("SELECT COUNT(*) FROM footballers;")
-            count = cursor.fetchone()[0]
-            if count >= 30:
-                flash('Достигнуто максимальное количество футболистов (30)', 'error')
-                return render_template('vote_player.html')
+        numeric_fields = {
+            'wins': (0, 100),
+            'losses': (0, 100),
+            'draws': (0, 100),
+            'goals': (0, 100),
+            'assists': (0, 100),
+            'clean_sheets': (0, 100),
+            'gentleman_coef': (1.0, 5.0)
+        }
 
-            # Добавление футболиста в базу
-            cursor.execute('''INSERT INTO footballers(first_name, last_name, age, club) VALUES (%s, %s, %s, %s);''',
-                           (first_name, last_name, age_value, club))
-            cursor.execute(
-                '''INSERT INTO personal_stats(player_name, goals, assists, clean_sheets) VALUES (%s, %s, %s, %s);''',
-                (last_name, goals_value, assists_value, clean_sheets_value))
-            cursor.execute('''INSERT INTO players(player_name, victories, losses, draws) VALUES (%s, %s, %s, %s);''',
-                           (last_name, wins_value, losses_value, draws_value))
-
-            # Обновление коэффициента джентльменства
-            cursor.execute("INSERT INTO gentleman_coefficient(coefficient, footballer) VALUES (%s, %s);",
-                           (gentleman_coef_value, f"{first_name} {last_name}"))
-
-            # Обновление статистики клуба
-            cursor.execute("SELECT id, victories, losses, draws FROM clubs WHERE club_name = %s;", (club,))
-            club_data = cursor.fetchone()
-            if club_data:
-                club_id, club_victories, club_losses, club_draws = club_data
-                new_victories = club_victories + wins_value
-                new_losses = club_losses + losses_value
-                new_draws = club_draws + draws_value
-                cursor.execute("UPDATE clubs SET victories = %s, losses = %s, draws = %s WHERE id = %s;",
-                               (new_victories, new_losses, new_draws, club_id))
+        field_values = {}
+        for field, (min_val, max_val) in numeric_fields.items():
+            value = request.form.get(field, '0').strip()
+            if field == 'gentleman_coef':
+                if not validate_float(value, min_val, max_val):
+                    flash(f'Некорректное значение для {field}', 'error')
+                    return render_template('vote_player.html')
+                field_values[field] = float(value) if value else 1.0
             else:
-                cursor.execute('''INSERT INTO clubs(champion_league, national_championship, cup, super_cup, victories, losses, draws, club_name) 
-                              VALUES (0, 0, 0, 0, %s, %s, %s, %s);''', (wins_value, losses_value, draws_value, club))
+                if not validate_number(value, min_val, max_val):
+                    flash(f'Некорректное значение для {field}', 'error')
+                    return render_template('vote_player.html')
+                field_values[field] = int(value) if value else 0
 
-            connection.commit()
-            write_log(f"Добавлен футболист: {first_name} {last_name}, клуб: {club}, возраст: {age_value}")
-            flash('Футболист успешно добавлен', 'success')
+        # Обработка загрузки изображения игрока
+        image_path = None
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER_PLAYERS'], filename)
+                file.save(filepath)
+                image_path = filepath
+
+        try:
+            with get_db_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) FROM footballers")
+                    count = cursor.fetchone()[0]
+                    if count >= 30:
+                        flash('Достигнуто максимальное количество футболистов (30)', 'error')
+                        return render_template('vote_player.html')
+
+                    cursor.execute(
+                        "INSERT INTO footballers(first_name, last_name, age, club, image_path) VALUES (%s, %s, %s, %s, %s)",
+                        (first_name, last_name, int(age), club, image_path)
+                    )
+
+                    cursor.execute(
+                        "INSERT INTO personal_stats(player_name, goals, assists, clean_sheets) VALUES (%s, %s, %s, %s)",
+                        (last_name, field_values['goals'], field_values['assists'], field_values['clean_sheets'])
+                    )
+
+                    cursor.execute(
+                        "INSERT INTO players(player_name, victories, losses, draws) VALUES (%s, %s, %s, %s)",
+                        (last_name, field_values['wins'], field_values['losses'], field_values['draws'])
+                    )
+
+                    cursor.execute(
+                        "INSERT INTO gentleman_coefficient(coefficient, footballer) VALUES (%s, %s)",
+                        (field_values['gentleman_coef'], f"{first_name} {last_name}")
+                    )
+
+                    cursor.execute(
+                        "SELECT id, victories, losses, draws FROM clubs WHERE club_name = %s",
+                        (club,)
+                    )
+                    club_data = cursor.fetchone()
+
+                    if club_data:
+                        club_id, club_victories, club_losses, club_draws = club_data
+                        new_victories = club_victories + field_values['wins']
+                        new_losses = club_losses + field_values['losses']
+                        new_draws = club_draws + field_values['draws']
+                        cursor.execute(
+                            "UPDATE clubs SET victories = %s, losses = %s, draws = %s WHERE id = %s",
+                            (new_victories, new_losses, new_draws, club_id)
+                        )
+                    else:
+                        cursor.execute(
+                            """INSERT INTO clubs(champion_league, national_championship, cup, super_cup, 
+                                victories, losses, draws, club_name, image_path) 
+                                VALUES (0, 0, 0, 0, %s, %s, %s, %s, NULL)""",
+                            (field_values['wins'], field_values['losses'], field_values['draws'], club)
+                        )
+
+                    connection.commit()
+                    write_log(f"Добавлен футболист: {first_name} {last_name}, клуб: {club}")
+                    flash('Футболист успешно добавлен', 'success')
 
         except Error as e:
-            if connection:
-                connection.rollback()
             flash(f'Ошибка при добавлении футболиста: {str(e)}', 'error')
-            print(f"Ошибка в vote_player: {e}")
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                connection.close()
+            print(f"Ошибка добавления футболиста: {e}")
 
     return render_template('vote_player.html')
 
@@ -321,117 +425,112 @@ def vote_player():
 @login_required()
 def vote_team():
     if request.method == 'POST':
-        club_name = request.form['club_name'].strip()
-        super_cup = request.form.get('super_cup', '0').strip()
-        champion_league = request.form.get('champion_league', '0').strip()
-        national_championship = request.form.get('national_championship', '0').strip()
-        cup = request.form.get('cup', '0').strip()
+        club_name = request.form.get('club_name', '').strip()
 
         if not club_name:
             flash('Название клуба обязательно для заполнения', 'error')
             return render_template('vote_team.html')
 
-        try:
-            super_cup_value = int(super_cup) if super_cup else 0
-            champion_league_value = int(champion_league) if champion_league else 0
-            national_championship_value = int(national_championship) if national_championship else 0
-            cup_value = int(cup) if cup else 0
-
-            # Проверка диапазонов
-            for val, name in [(super_cup_value, "суперкубков"), (champion_league_value, "лиг чемпионов"),
-                              (national_championship_value, "чемпионатов страны"), (cup_value, "кубков")]:
-                if val < 0 or val > 2:
-                    flash(f'Количество {name} должно быть от 0 до 2', 'error')
-                    return render_template('vote_team.html')
-
-        except ValueError:
-            flash('Поля статистики должны быть числовыми', 'error')
+        if not validate_input(club_name, max_length=255):
+            flash('Некорректное название клуба', 'error')
             return render_template('vote_team.html')
 
-        # Добавление клуба в базу
-        connection = None
-        cursor = None
+        trophy_fields = {
+            'super_cup': (0, 2),
+            'champion_league': (0, 2),
+            'national_championship': (0, 2),
+            'cup': (0, 2)
+        }
+
+        trophy_values = {}
+        for field, (min_val, max_val) in trophy_fields.items():
+            value = request.form.get(field, '0').strip()
+            if not validate_number(value, min_val, max_val):
+                flash(f'Количество {field} должно быть от {min_val} до {max_val}', 'error')
+                return render_template('vote_team.html')
+            trophy_values[field] = int(value) if value else 0
+
+        # Загрузка изображения клуба
+        image_path = None
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER_CLUBS'], filename)
+                file.save(filepath)
+                image_path = filepath
+
         try:
-            connection = get_db_connection()
-            cursor = connection.cursor()
+            with get_db_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM clubs WHERE club_name = %s", (club_name,))
+                    club_exists = cursor.fetchone()
 
-            cursor.execute("SELECT id FROM clubs WHERE club_name = %s;", (club_name,))
-            club_id_result = cursor.fetchone()
+                    if club_exists:
+                        club_id = club_exists[0]
+                        # Обновление со вставкой пути к изображению, если есть
+                        if image_path:
+                            cursor.execute(
+                                """UPDATE clubs SET super_cup = super_cup + %s, champion_league = champion_league + %s,
+                                national_championship = national_championship + %s, cup = cup + %s, image_path = %s
+                                WHERE id = %s""",
+                                (trophy_values['super_cup'], trophy_values['champion_league'],
+                                trophy_values['national_championship'], trophy_values['cup'], image_path, club_id)
+                            )
+                        else:
+                            cursor.execute(
+                                """UPDATE clubs SET super_cup = super_cup + %s, champion_league = champion_league + %s,
+                                national_championship = national_championship + %s, cup = cup + %s
+                                WHERE id = %s""",
+                                (trophy_values['super_cup'], trophy_values['champion_league'],
+                                trophy_values['national_championship'], trophy_values['cup'], club_id)
+                            )
+                    else:
+                        cursor.execute(
+                            """INSERT INTO clubs(super_cup, champion_league, national_championship, cup,
+                            victories, losses, draws, club_name, image_path)
+                            VALUES (%s, %s, %s, %s, 0, 0, 0, %s, %s)""",
+                            (trophy_values['super_cup'], trophy_values['champion_league'],
+                            trophy_values['national_championship'], trophy_values['cup'], club_name, image_path)
+                        )
+                        club_id = cursor.lastrowid
 
-            if club_id_result:
-                club_id = club_id_result[0]
-                cursor.execute(
-                    "SELECT super_cup, champion_league, national_championship, cup FROM clubs WHERE club_name = %s;",
-                    (club_name,))
-                old = cursor.fetchone()
-                super_cup_total = old[0] + super_cup_value
-                champion_league_total = old[1] + champion_league_value
-                national_championship_total = old[2] + national_championship_value
-                cup_total = old[3] + cup_value
-                cursor.execute(
-                    '''UPDATE clubs SET super_cup=%s, champion_league=%s, national_championship=%s, cup=%s WHERE club_name=%s;''',
-                    (super_cup_total, champion_league_total, national_championship_total, cup_total, club_name))
-            else:
-                cursor.execute('''INSERT INTO clubs(super_cup, champion_league, national_championship, cup, victories, losses, draws, club_name) 
-                              VALUES (%s, %s, %s, %s, 0, 0, 0, %s);''',
-                               (super_cup_value, champion_league_value, national_championship_value, cup_value, club_name))
-                club_id = cursor.lastrowid
+                    for trophy_type, count in trophy_values.items():
+                        for _ in range(count):
+                            cursor.execute(
+                                "INSERT INTO trophies(club_name, trophy_type) VALUES (%s, %s)",
+                                (club_name, trophy_type)
+                            )
 
-            # Добавление трофеев
-            trophy_map = {
-                "super_cup": super_cup_value,
-                "champion_league": champion_league_value,
-                "national_championship": national_championship_value,
-                "cup": cup_value
-            }
-            for trophy_type, count in trophy_map.items():
-                for _ in range(count):
-                    cursor.execute('INSERT INTO trophies(club_name, trophy_type) VALUES (%s, %s);',
-                                   (club_name, trophy_type))
-
-            connection.commit()
-            write_log(
-                f"Добавлен клуб: {club_name}, Суперкубки: {super_cup_value}, Лига Чемпионов: {champion_league_value}, Чемпионат: {national_championship_value}, Кубок: {cup_value}")
-            flash('Клуб успешно добавлен', 'success')
+                    connection.commit()
+                    write_log(f"Добавлен/обновлен клуб: {club_name}")
+                    flash('Клуб успешно добавлен/обновлен', 'success')
 
         except Error as e:
-            if connection:
-                connection.rollback()
-            flash(f'Ошибка при добавлении клуба: {str(e)}', 'error')
-            print(f"Ошибка в vote_team: {e}")
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                connection.close()
+            flash(f'Ошибка при работе с клубом: {str(e)}', 'error')
+            print(f"Ошибка работы с клубом: {e}")
 
     return render_template('vote_team.html')
 
 @app.route('/admin')
 @login_required('admin')
 def admin_panel():
+    """Панель администратора."""
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM users")
+                users_count = cursor.fetchone()[0]
 
-        # Получаем статистику
-        cursor.execute("SELECT COUNT(*) FROM users;")
-        users_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM footballers")
+                players_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM footballers;")
-        players_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM clubs")
+                clubs_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM clubs;")
-        clubs_count = cursor.fetchone()[0]
+                cursor.execute("SELECT text FROM logs ORDER BY id DESC LIMIT 5")
+                logs_data = cursor.fetchall()
 
-        # Получаем последние логи (последние 5 записей)
-        cursor.execute("SELECT text FROM logs ORDER BY id DESC LIMIT 5;")
-        logs_data = cursor.fetchall()
-
-        cursor.close()
-        connection.close()
-
-        # Парсим логи для отображения
         recent_logs = []
         for log in logs_data:
             if ': ' in log[0]:
@@ -445,35 +544,36 @@ def admin_panel():
                                players_count=players_count,
                                clubs_count=clubs_count,
                                recent_logs=recent_logs)
+
     except Error as e:
         flash(f'Ошибка загрузки панели: {str(e)}', 'error')
-        print(f"Ошибка в admin_panel: {e}")
         return redirect(url_for('index'))
 
 @app.route('/admin/users')
 @login_required('admin')
 def admin_users():
+    """Управление пользователями."""
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
-        cursor.execute("SELECT id, login, role FROM users;")
-        users = cursor.fetchall()
-        cursor.close()
-        connection.close()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, login, role FROM users")
+                users = cursor.fetchall()
+
         return render_template('admin_users.html', users=users)
+
     except Error as e:
         flash(f'Ошибка загрузки пользователей: {str(e)}', 'error')
-        print(f"Ошибка в admin_users: {e}")
         return redirect(url_for('admin_panel'))
 
 @app.route('/admin/add_user', methods=['POST'])
 @login_required('admin')
 def admin_add_user():
-    login = request.form['login']
-    password = request.form['password']
+    """Добавление пользователя."""
+    login_input = request.form.get('login', '').strip()
+    password = request.form.get('password', '')
     role = request.form.get('role', 'user')
 
-    if not login or not password:
+    if not all([login_input, password]):
         flash('Введите логин и пароль', 'error')
         return redirect(url_for('admin_users'))
 
@@ -481,64 +581,58 @@ def admin_add_user():
         flash('Пароль должен быть не менее 4 символов', 'error')
         return redirect(url_for('admin_users'))
 
-    hashed = encrypt_password(password)
-    connection = None
-    cursor = None
+    if not validate_input(login_input, max_length=100):
+        flash('Некорректный логин', 'error')
+        return redirect(url_for('admin_users'))
+
+    hashed_password = encrypt_password(password)
+
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
-        cursor.execute("INSERT INTO users(login, password_hash, role) VALUES (%s, %s, %s);", (login, hashed, role))
-        connection.commit()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO users(login, password_hash, role) VALUES (%s, %s, %s)",
+                    (login_input, hashed_password, role)
+                )
+                connection.commit()
+
         flash('Пользователь успешно добавлен', 'success')
-        write_log(f"Администратор добавил пользователя: {login}")
+        write_log(f"Администратор добавил пользователя: {login_input}")
+
     except Error as e:
-        if connection:
-            connection.rollback()
         if "Duplicate entry" in str(e):
             flash('Такой логин уже существует', 'error')
         else:
             flash(f'Ошибка добавления пользователя: {str(e)}', 'error')
-            print(f"Ошибка в admin_add_user: {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if connection:
-            connection.close()
 
     return redirect(url_for('admin_users'))
 
 @app.route('/admin/delete_user/<int:user_id>')
 @login_required('admin')
 def admin_delete_user(user_id):
+    """Удаление пользователя."""
     if user_id == session.get('user_id'):
         flash('Нельзя удалить самого себя', 'error')
         return redirect(url_for('admin_users'))
 
-    connection = None
-    cursor = None
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
-        cursor.execute("DELETE FROM users WHERE id = %s;", (user_id,))
-        connection.commit()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+                connection.commit()
+
         flash('Пользователь удален', 'success')
         write_log(f"Администратор удалил пользователя с ID: {user_id}")
+
     except Error as e:
-        if connection:
-            connection.rollback()
         flash(f'Ошибка удаления пользователя: {str(e)}', 'error')
-        print(f"Ошибка в admin_delete_user: {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if connection:
-            connection.close()
 
     return redirect(url_for('admin_users'))
 
 @app.route('/admin/awards')
 @login_required('admin')
 def admin_awards():
+    """Расчет наград."""
     calculate_awards_and_winner()
     flash('Награды и победитель Золотого мяча обновлены', 'success')
     return redirect(url_for('admin_panel'))
@@ -546,200 +640,195 @@ def admin_awards():
 @app.route('/admin/golden_ball')
 @login_required('admin')
 def admin_golden_ball():
+    """Просмотр Золотого мяча."""
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
-        cursor.execute("SELECT holder FROM golden_ball;")
-        holders = cursor.fetchall()
-        cursor.close()
-        connection.close()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT holder FROM golden_ball")
+                holders = cursor.fetchall()
+
         return render_template('admin_golden_ball.html', holders=holders)
+
     except Error as e:
         flash(f'Ошибка загрузки Золотого мяча: {str(e)}', 'error')
-        print(f"Ошибка в admin_golden_ball: {e}")
         return redirect(url_for('admin_panel'))
 
 @app.route('/admin/query', methods=['GET', 'POST'])
 @login_required('admin')
 def admin_query():
+    """Выполнение SQL-запросов."""
     if request.method == 'POST':
-        query = request.form['query']
+        query = request.form.get('query', '').strip()
+
         if not query:
             flash('Введите SQL-запрос', 'error')
             return render_template('admin_query.html')
 
-        connection = None
-        cursor = None
+        # Запрещенные операции для безопасности
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
+        if any(keyword in query.upper() for keyword in dangerous_keywords):
+            flash('Запрещенный тип запроса. Разрешены только SELECT запросы.', 'error')
+            return render_template('admin_query.html')
+
         try:
-            connection = get_db_connection()
-            cursor = connection.cursor()
-            cursor.execute(query)
-            if query.lower().strip().startswith('select'):
-                rows = cursor.fetchall()
-                headers = [description[0] for description in cursor.description] if cursor.description else []
-                result = {
-                    'headers': headers,
-                    'rows': rows
-                }
-                write_log(f"Администратор выполнил запрос: {query}")
-                return render_template('admin_query.html', result=result)
-            else:
-                connection.commit()
-                flash('Запрос выполнен успешно', 'success')
-                write_log(f"Администратор выполнил запрос: {query}")
+            with get_db_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(query)
+
+                    if query.upper().strip().startswith('SELECT'):
+                        rows = cursor.fetchall()
+                        headers = [description[0] for description in cursor.description] if cursor.description else []
+                        result = {'headers': headers, 'rows': rows}
+                        write_log(f"Администратор выполнил запрос: {query}")
+                        return render_template('admin_query.html', result=result)
+                    else:
+                        connection.commit()
+                        flash('Запрос выполнен успешно', 'success')
+                        write_log(f"Администратор выполнил запрос: {query}")
+
         except Error as e:
-            if connection:
-                connection.rollback()
             flash(f'Ошибка выполнения запроса: {str(e)}', 'error')
-            print(f"Ошибка в admin_query: {e}")
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                connection.close()
 
     return render_template('admin_query.html')
 
 @app.route('/admin/delete_record', methods=['POST'])
 @login_required('admin')
 def admin_delete_record():
-    table = request.form['table']
-    record_id = request.form['record_id']
+    """Удаление записи из базы данных."""
+    table = request.form.get('table', '').strip()
+    record_id = request.form.get('record_id', '').strip()
+
+    # Валидация ввода
+    if not table or not record_id:
+        flash('Не указана таблица или ID записи', 'error')
+        return redirect(url_for('admin_panel'))
+
+    if table not in ALLOWED_TABLES:
+        flash('Недопустимое имя таблицы', 'error')
+        return redirect(url_for('admin_panel'))
 
     if not record_id.isdigit():
         flash('ID записи должен быть числом', 'error')
         return redirect(url_for('admin_panel'))
 
     record_id = int(record_id)
-    connection = None
-    cursor = None
+
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                # Проверка существования записи
+                cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE id = %s", (record_id,))
+                if cursor.fetchone()[0] == 0:
+                    flash(f'Запись с id={record_id} не найдена в таблице {table}', 'error')
+                    return redirect(url_for('admin_panel'))
 
-        cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE id = %s;", (record_id,))
-        count = cursor.fetchone()[0]
-        if count == 0:
-            flash(f'Запись с id={record_id} не найдена в таблице {table}', 'error')
-            return redirect(url_for('admin_panel'))
+                # Каскадное удаление для связанных данных
+                if table == "footballers":
+                    cursor.execute("SELECT last_name, first_name, club FROM footballers WHERE id = %s", (record_id,))
+                    player_data = cursor.fetchone()
+                    if player_data:
+                        last_name, first_name, club = player_data
+                        cursor.execute("DELETE FROM footballers WHERE id = %s", (record_id,))
+                        cursor.execute("DELETE FROM personal_stats WHERE player_name = %s", (last_name,))
+                        cursor.execute("DELETE FROM players WHERE player_name = %s", (last_name,))
+                        full_name = f"{first_name} {last_name}"
+                        cursor.execute("DELETE FROM gentleman_coefficient WHERE footballer = %s", (full_name,))
 
-        if table == "footballers":
-            cursor.execute("SELECT last_name, first_name, club FROM footballers WHERE id = %s;", (record_id,))
-            player_data = cursor.fetchone()
-            if player_data:
-                last_name, first_name, club = player_data
-                cursor.execute("DELETE FROM footballers WHERE id = %s;", (record_id,))
-                cursor.execute("DELETE FROM personal_stats WHERE player_name = %s;", (last_name,))
-                cursor.execute("DELETE FROM players WHERE player_name = %s;", (last_name,))
-                full_name = f"{first_name} {last_name}"
-                cursor.execute("DELETE FROM gentleman_coefficient WHERE footballer = %s;", (full_name,))
-        elif table == "clubs":
-            cursor.execute("SELECT club_name FROM clubs WHERE id = %s;", (record_id,))
-            club_data = cursor.fetchone()
-            if club_data:
-                club_name = club_data[0]
-                cursor.execute("DELETE FROM clubs WHERE id = %s;", (record_id,))
-                cursor.execute("DELETE FROM trophies WHERE club_name = %s;", (club_name,))
-                cursor.execute("UPDATE footballers SET club='' WHERE club = %s;", (club_name,))
-        else:
-            cursor.execute(f"DELETE FROM {table} WHERE id = %s;", (record_id,))
+                elif table == "clubs":
+                    cursor.execute("SELECT club_name FROM clubs WHERE id = %s", (record_id,))
+                    club_data = cursor.fetchone()
+                    if club_data:
+                        club_name = club_data[0]
+                        cursor.execute("DELETE FROM clubs WHERE id = %s", (record_id,))
+                        cursor.execute("DELETE FROM trophies WHERE club_name = %s", (club_name,))
+                        cursor.execute("UPDATE footballers SET club='' WHERE club = %s", (club_name,))
+                else:
+                    cursor.execute(f"DELETE FROM {table} WHERE id = %s", (record_id,))
 
-        connection.commit()
-        flash(f'Запись с id={record_id} из таблицы {table} успешно удалена', 'success')
-        write_log(f"Удалена запись id={record_id} из таблицы {table}")
+                connection.commit()
+                flash(f'Запись с id={record_id} из таблицы {table} успешно удалена', 'success')
+                write_log(f"Удалена запись id={record_id} из таблицы {table}")
 
     except Error as e:
-        if connection:
-            connection.rollback()
         flash(f'Не удалось удалить запись: {str(e)}', 'error')
-        print(f"Ошибка в admin_delete_record: {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if connection:
-            connection.close()
 
     return redirect(url_for('admin_panel'))
 
 def calculate_awards_and_winner():
-    connection = None
-    cursor = None
+    """Расчет наград и победителя Золотого мяча."""
     try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                # Очистка предыдущих наград
+                cursor.execute("DELETE FROM awards")
+                cursor.execute("DELETE FROM golden_ball")
 
-        cursor.execute("DELETE FROM awards;")
-        cursor.execute("DELETE FROM golden_ball;")
+                # Лучший бомбардир
+                cursor.execute(
+                    "SELECT player_name FROM personal_stats WHERE goals = (SELECT MAX(goals) FROM personal_stats) LIMIT 1"
+                )
+                top_scorer_data = cursor.fetchone()
+                top_scorer = top_scorer_data[0] if top_scorer_data else "Не определен"
 
-        # Найти лучшего бомбардира (игрок с максимальным goals)
-        cursor.execute("SELECT player_name FROM personal_stats WHERE goals = (SELECT MAX(goals) FROM personal_stats) LIMIT 1;")
-        top_scorer_data = cursor.fetchone()
-        top_scorer = top_scorer_data[0] if top_scorer_data else None
+                # Лучший ассистент
+                cursor.execute(
+                    "SELECT player_name FROM personal_stats WHERE assists = (SELECT MAX(assists) FROM personal_stats) LIMIT 1"
+                )
+                top_assist_data = cursor.fetchone()
+                top_assist = top_assist_data[0] if top_assist_data else "Не определен"
 
-        # Найти лучшего ассистента (игрок с максимальным assists)
-        cursor.execute("SELECT player_name FROM personal_stats WHERE assists = (SELECT MAX(assists) FROM personal_stats) LIMIT 1;")
-        top_assist_data = cursor.fetchone()
-        top_assist = top_assist_data[0] if top_assist_data else None
+                # Добавление наград
+                cursor.execute(
+                    "INSERT INTO awards(top_scorer, top_assist) VALUES (%s, %s)",
+                    (top_scorer, top_assist)
+                )
 
-        if top_scorer and top_assist:
-            cursor.execute("INSERT INTO awards(top_scorer, top_assist) VALUES (%s, %s);", (top_scorer, top_assist))
-            write_log(f"Обновлены награды: лучший бомбардир - {top_scorer}, лучший ассистент - {top_assist}")
+                # Расчет Золотого мяча
+                query = '''
+                    SELECT f.first_name, f.last_name, f.club,
+                           ps.goals, ps.assists, ps.clean_sheets,
+                           p.victories, p.draws, p.losses,
+                           c.victories as club_victories, c.draws as club_draws, c.losses as club_losses,
+                           COALESCE(gc.coefficient, 1.0) as gentleman_coef
+                    FROM footballers f
+                    JOIN personal_stats ps ON ps.player_name = f.last_name
+                    JOIN players p ON p.player_name = f.last_name
+                    JOIN clubs c ON c.club_name = f.club
+                    LEFT JOIN gentleman_coefficient gc ON gc.footballer = CONCAT(f.first_name, ' ', f.last_name)
+                '''
+                cursor.execute(query)
+                players = cursor.fetchall()
 
-        query = '''
-            SELECT f.first_name, f.last_name, f.club,
-                   ps.goals, ps.assists, ps.clean_sheets,
-                   p.victories, p.draws, p.losses,
-                   c.victories, c.draws, c.losses,
-                   COALESCE(fc.coefficient, 1.0) as gentleman_coef
-            FROM footballers f
-            JOIN personal_stats ps ON ps.player_name = f.last_name
-            JOIN players p ON p.player_name = f.last_name
-            JOIN clubs c ON c.club_name = f.club
-            LEFT JOIN gentleman_coefficient fc ON fc.footballer = CONCAT(f.first_name, ' ', f.last_name)
-        '''
-        cursor.execute(query)
-        players = cursor.fetchall()
+                best_score = 0
+                best_player = None
 
-        best_score = None
-        best_player = None
-        for player in players:
-            (first_name, last_name, club,
-             goals, assists, clean_sheets,
-             p_victories, p_draws, p_losses,
-             c_victories, c_draws, c_losses,
-             gentleman_coef_val) = player
+                for player in players:
+                    (first_name, last_name, club, goals, assists, clean_sheets,
+                     p_victories, p_draws, p_losses, c_victories, c_draws, c_losses, gentleman_coef) = player
 
-            score = (goals + assists + clean_sheets +
-                     c_victories + c_draws +
-                     p_victories + p_draws -
-                     c_losses - p_losses) * gentleman_coef_val
+                    score = (goals + assists + clean_sheets +
+                             c_victories + c_draws + p_victories + p_draws -
+                             c_losses - p_losses) * gentleman_coef
 
-            if best_score is None or score > best_score:
-                best_score = score
-                best_player = f"{first_name} {last_name}"
+                    if score > best_score:
+                        best_score = score
+                        best_player = f"{first_name} {last_name}"
 
-        if best_player:
-            cursor.execute("INSERT INTO golden_ball(holder) VALUES (%s);", (best_player,))
-            write_log(f"Объявлен победитель Золотого мяча: {best_player} с очками {best_score}")
-            write_log(f"Победителем Золотого мяча стал {best_player} с очками {best_score}.")
+                # Добавление победителя
+                if best_player:
+                    cursor.execute("INSERT INTO golden_ball(holder) VALUES (%s)", (best_player,))
+                    write_log(f"Победитель Золотого мяча: {best_player} с очками {best_score}")
 
-        connection.commit()
+                connection.commit()
+                write_log(f"Награды обновлены: лучший бомбардир - {top_scorer}, лучший ассистент - {top_assist}")
 
     except Error as e:
-        if connection:
-            connection.rollback()
-        print(f"Ошибка в calculate_awards_and_winner: {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if connection:
-            connection.close()
+        print(f"Ошибка расчета наград: {e}")
 
 if __name__ == '__main__':
-    success = initialize_database()
-    if success:
-        print("Flask приложение инициализировано и запущено.")
-        app.run(host='0.0.0.0', port=5000, debug=True)  # Запуск на всех интерфейсах
+    if initialize_database():
+        print("Flask приложение успешно запущено.")
+        app.run(host='0.0.0.0', debug=False)
     else:
-        print("Инициализация БД failed. Приложение не запустится.")
+        print("Ошибка инициализации базы данных. Приложение не запущено.")
         exit(1)
