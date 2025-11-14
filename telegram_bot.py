@@ -3,7 +3,7 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InputFile
 import telebot
 import os
 
-token = '8315061997:AAFEeHeoS16xB119HDNk5AMQwCKeZ64Y1ek'
+token = os.getenv('TELEGRAM_TOKEN', '8315061997:AAFEeHeoS16xB119HDNk5AMQwCKeZ64Y1ek')
 bot = telebot.TeleBot(token)
 
 GUI_APP_PATH = 'http://158.160.203.139:5000/, http://127.0.0.1:5000, http://192.168.1.105:5000'

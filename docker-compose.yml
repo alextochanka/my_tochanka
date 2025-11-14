@@ -2,16 +2,41 @@ version: '3.8'
 
 services:
   app:
-    build: .  # Использует Dockerfile в текущей директории
-    network_mode: host  # Контейнер использует сеть хоста для доступа к локальной БД
+    build: .  # Строит из Dockerfile в текущей директории
+    depends_on:
+      - mysql  # Ждем, пока MySQL запустится
     environment:
-      - DB_HOST=localhost  # Или IP вашего хоста, например 192.168.1.100 (если не host mode)
-      - DB_PORT=3306       # Порт MySQL (измените, если другой)
-      - DB_USER=root  # Ваш логин БД
-      - DB_PASS=Tochankau110574  # Ваш пароль БД
-      - DB_NAME=Football  # Имя БД
-      # Добавьте другие переменные, если нужно (например, для Telegram API токена)
+      # Переменные для базы данных (MYSQL_HOST теперь указывает на сервис mysql)
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=Tochankau110574  # Ваш пароль
+      - MYSQL_DATABASE=Football  # Имя базы данных
+      # Переменная для Telegram-бота (чтобы не хардкодить токен)
+      - TELEGRAM_TOKEN=8315061997:AAFEeHeoS16xB119HDNk5AMQwCKeZ64Y1ek
+      # Другие переменные, если нужны (например, SECRET_KEY для Flask)
+      - SECRET_KEY=your_default_secret_key
     volumes:
-      - .:/app  # Монтируем текущую директорию для разработки (опционально, для hot-reload)
-    command: python main.py  # Запуск main.py
+      - .:/app  # Монтирует текущую директорию для разработки (hot-reload)
     restart: unless-stopped  # Автозапуск при сбое
+    networks:
+      - app_network  # Подключаемся к внутренней сети
+
+  mysql:
+    image: mysql:8.0  # Используем официальный образ MySQL 8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: Tochankau110574  # Пароль root
+      MYSQL_DATABASE: Football  # Автоматически создаем базу данных
+    ports:
+      - "3306:3306"  # Экспортируем порт на хост (опционально, для доступа извне)
+    volumes:
+      - mysql_data:/var/lib/mysql  # Персистентное хранение данных
+    restart: unless-stopped
+    networks:
+      - app_network
+
+networks:
+  app_network:  # Внутренняя сеть для связи между сервисами
+
+volumes:
+  mysql_data:  # Том для хранения данных MySQL
