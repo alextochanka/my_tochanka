@@ -2,41 +2,46 @@ version: '3.8'
 
 services:
   app:
-    build: .  # Строит из Dockerfile в текущей директории
+    build: .
+    container_name: my_tochanka_app
+    volumes:
+      - ./logs:/app/logs
+      - ./static:/app/static
+      - ./templates:/app/templates
+    environment:
+      - PYTHONUNBUFFERED=1
     depends_on:
-      - mysql  # Ждем, пока MySQL запустится
-    environment:
-      # Переменные для базы данных (MYSQL_HOST теперь указывает на сервис mysql)
-      - MYSQL_HOST=mysql
-      - MYSQL_PORT=3306
-      - MYSQL_USER=root
-      - MYSQL_PASSWORD=Tochankau110574  # Ваш пароль
-      - MYSQL_DATABASE=Football  # Имя базы данных
-      # Переменная для Telegram-бота (чтобы не хардкодить токен)
-      - TELEGRAM_TOKEN=8315061997:AAFEeHeoS16xB119HDNk5AMQwCKeZ64Y1ek
-      # Другие переменные, если нужны (например, SECRET_KEY для Flask)
-      - SECRET_KEY=your_default_secret_key
-    volumes:
-      - .:/app  # Монтирует текущую директорию для разработки (hot-reload)
-    restart: unless-stopped  # Автозапуск при сбое
-    networks:
-      - app_network  # Подключаемся к внутренней сети
-
-  mysql:
-    image: mysql:8.0  # Используем официальный образ MySQL 8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: Tochankau110574  # Пароль root
-      MYSQL_DATABASE: Football  # Автоматически создаем базу данных
-    ports:
-      - "3306:3306"  # Экспортируем порт на хост (опционально, для доступа извне)
-    volumes:
-      - mysql_data:/var/lib/mysql  # Персистентное хранение данных
+      - db
     restart: unless-stopped
-    networks:
-      - app_network
+    ports:
+      - "5000:5000"  # Добавьте это для доступа к Flask приложению
 
-networks:
-  app_network:  # Внутренняя сеть для связи между сервисами
+  db:
+    image: mysql:8.0
+    container_name: my_tochanka_db
+    environment:
+      MYSQL_ROOT_PASSWORD: Tochankau110574  # Добавлен пароль
+      MYSQL_DATABASE: Gold_medal
+      MYSQL_USER: root
+      MYSQL_PASSWORD: Tochankau110574
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./mydb.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+
+  bot:
+    build: .
+    container_name: my_tochanka_bot
+    command: python telegram_bot.py
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - db
+    restart: unless-stopped
 
 volumes:
-  mysql_data:  # Том для хранения данных MySQL
+  db_data:
