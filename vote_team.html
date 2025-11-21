@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Голосование за команду - Золотой Мяч{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <h2 class="mb-4">Голосование за лучшую команду</h2>
+        
+        <form method="POST" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="club_name" class="form-label">Название клуба *</label>
+                <input type="text" class="form-control" id="club_name" name="club_name" required
+                       pattern="[A-Za-zА-Яа-я\s]+" title="Только буквы и пробелы">
+            </div>
+
+            <div class="mb-3">
+                <label for="image" class="form-label">Фотография клуба</label>
+                <input type="file" class="form-control" id="image" name="image" accept="image/*" onchange="previewImage(event)">
+            </div>
+
+            <!-- Здесь будет отображаться превью -->
+            <div class="mb-3">
+                <img id="imgPreview" src="#" alt="Превью изображения" style="display:none; max-width: 100%; height: auto;">
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="super_cup" class="form-label">Суперкубки</label>
+                        <input type="number" class="form-control" id="super_cup" name="super_cup" min="0" max="2" value="0">
+                        <div class="form-text">От 0 до 2</div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="champion_league" class="form-label">Лиги чемпионов</label>
+                        <input type="number" class="form-control" id="champion_league" name="champion_league" min="0" max="2" value="0">
+                        <div class="form-text">От 0 до 2</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="national_championship" class="form-label">Чемпионаты страны</label>
+                        <input type="number" class="form-control" id="national_championship" name="national_championship" min="0" max="2" value="0">
+                        <div class="form-text">От 0 до 2</div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="cup" class="form-label">Кубки страны</label>
+                        <input type="number" class="form-control" id="cup" name="cup" min="0" max="2" value="0">
+                        <div class="form-text">От 0 до 2</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary">Сохранить клуб</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">На главную</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function previewImage(event) {
+    const input = event.target;
+    const preview = document.getElementById('imgPreview');
+
+    if(input.files && input.files[0]) {
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+        }
+
+        reader.readAsDataURL(input.files[0]);
+    } else {
+        preview.src = "#";
+        preview.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

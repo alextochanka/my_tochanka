@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель администратора - Golden Football</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .admin-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .feature-card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+            margin-bottom: 20px;
+            height: 100%;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+        .card-users { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; }
+        .card-awards { background: linear-gradient(135deg, #fc466b 0%, #3f5efb 100%); color: white; }
+        .card-database { background: linear-gradient(135deg, #fdbb2d 0%, #22c1c3 100%); color: white; }
+        .card-results { background: linear-gradient(135deg, #834d9b 0%, #d04ed6 100%); color: white; }
+        .stats-card { background: #f8f9fa; border-left: 4px solid #007bff; }
+    </style>
+</head>
+<body>
+    <!-- Навигация -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                🏆 Golden Football
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Главная</a>
+                    </li>
+                    {% if 'user_id' in session %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logout') }}">Выйти ({{ session.login }})</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Заголовок -->
+    <div class="admin-header py-4">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h1 class="display-5 fw-bold">⚙️ Панель администратора</h1>
+                    <p class="lead mb-0">Управление системой голосования Golden Football</p>
+                </div>
+                <div class="col-auto">
+                    <span class="badge bg-warning text-dark fs-6">Роль: {{ session.role }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Сообщения -->
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Основной контент -->
+    <div class="container my-5">
+        <!-- Статистика системы -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card stats-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h5 class="card-title">👥 Пользователи</h5>
+                                <h2 class="text-primary">{{ users_count }}</h2>
+                            </div>
+                            <div class="align-self-center">
+                                <span class="fs-1">📊</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stats-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h5 class="card-title">⚽ Футболисты</h5>
+                                <h2 class="text-success">{{ players_count }}</h2>
+                            </div>
+                            <div class="align-self-center">
+                                <span class="fs-1">👤</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stats-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h5 class="card-title">🏟️ Клубы</h5>
+                                <h2 class="text-info">{{ clubs_count }}</h2>
+                            </div>
+                            <div class="align-self-center">
+                                <span class="fs-1">🏢</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Функции администрирования -->
+        <div class="row">
+            <!-- Управление пользователями -->
+            <div class="col-lg-3 col-md-6 mb-4">
+                <div class="card feature-card card-users">
+                    <div class="card-body text-center p-4">
+                        <div class="mb-3" style="font-size: 3rem;">
+                            👥
+                        </div>
+                        <h5 class="card-title">Управление пользователями</h5>
+                        <p class="card-text">Добавление, просмотр и удаление пользователей системы</p>
+                        <a href="{{ url_for('admin_users') }}" class="btn btn-light btn-sm mt-2">Управление пользователями</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Награды и результаты -->
+            <div class="col-lg-3 col-md-6 mb-4">
+                <div class="card feature-card card-awards">
+                    <div class="card-body text-center p-4">
+                        <div class="mb-3" style="font-size: 3rem;">
+                            🏆
+                        </div>
+                        <h5 class="card-title">Награды</h5>
+                        <p class="card-text">Подсчет результатов и награждение победителей</p>
+                        <a href="{{ url_for('admin_awards') }}" class="btn btn-light btn-sm mt-2">Подсчитать награды</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Золотой мяч -->
+            <div class="col-lg-3 col-md-6 mb-4">
+                <div class="card feature-card card-results">
+                    <div class="card-body text-center p-4">
+                        <div class="mb-3" style="font-size: 3rem;">
+                            ⚽
+                        </div>
+                        <h5 class="card-title">Золотой мяч</h5>
+                        <p class="card-text">Просмотр победителей Золотого мяча</p>
+                        <a href="{{ url_for('admin_golden_ball') }}" class="btn btn-light btn-sm mt-2">Просмотр победителей</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- База данных -->
+            <div class="col-lg-3 col-md-6 mb-4">
+                <div class="card feature-card card-database">
+                    <div class="card-body text-center p-4">
+                        <div class="mb-3" style="font-size: 3rem;">
+                            🗃️
+                        </div>
+                        <h5 class="card-title">База данных</h5>
+                        <p class="card-text">Выполнение прямых SQL-запросов к базе данных</p>
+                        <a href="{{ url_for('admin_query') }}" class="btn btn-light btn-sm mt-2">Выполнить запросы</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Быстрое управление -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">🚀 Быстрое управление записями</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ url_for('admin_delete_record') }}" method="post" class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label">Таблица</label>
+                                <select name="table" class="form-select" required>
+                                    <option value="">Выберите таблицу...</option>
+                                    <option value="footballers">Футболисты</option>
+                                    <option value="clubs">Клубы</option>
+                                    <option value="users">Пользователи</option>
+                                    <option value="awards">Награды</option>
+                                    <option value="personal_stats">Персональная статистика</option>
+                                    <option value="players">Игроки</option>
+                                    <option value="trophies">Трофеи</option>
+                                    <option value="gentleman_coefficient">Коэффициент джентльменства</option>
+                                    <option value="golden_ball">Золотой мяч</option>
+                                    <option value="logs">Логи</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">ID записи</label>
+                                <input type="number" name="record_id" class="form-control" placeholder="Введите ID записи" required min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <button type="submit" class="btn btn-danger w-100" onclick="return confirm('Вы уверены, что хотите удалить эту запись?')">
+                                    🗑️ Удалить запись
+                                </button>
+                            </div>
+                        </form>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                Внимание: Удаление записей из некоторых таблиц может привести к каскадному удалению связанных данных.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Логи системы -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">📋 Последние действия в системе</h5>
+                        <span class="badge bg-light text-dark">Последние 5 записей</span>
+                    </div>
+                    <div class="card-body">
+                        {% if recent_logs %}
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Время</th>
+                                        <th>Действие</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for log in recent_logs %}
+                                    <tr>
+                                        <td class="text-nowrap" style="width: 200px;">
+                                            <small>{{ log.timestamp }}</small>
+                                        </td>
+                                        <td>
+                                            <small>{{ log.message }}</small>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted text-center py-3">Нет записей в логах</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-dark text-light py-4 mt-5">
+        <div class="container text-center">
+            <p>&copy; 2025 Golden Football. Панель администратора.</p>
+            <small>Текущий пользователь: {{ session.login }} | Роль: {{ session.role }} | ID: {{ session.user_id }}</small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Автоматическое скрытие alert сообщений через 5 секунд
+        setTimeout(function() {
+            var alerts = document.querySelectorAll('.alert');
+            alerts.forEach(function(alert) {
+                var bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            });
+        }, 5000);
+    </script>
+</body>
+</html>
