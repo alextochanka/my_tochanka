@@ -66,7 +66,7 @@ def allowed_file(filename):
 ALLOWED_TABLES = {
     'gentleman_coefficient', 'golden_ball', 'players', 'clubs',
     'personal_stats', 'awards', 'trophies', 'footballers', 'logs', 'users',
-    'bot_users', 'bot_logs', 'bot_sessions'
+    'bot_users', 'bot_logs'
 }
 
 def get_db_connection():
